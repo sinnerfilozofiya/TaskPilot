@@ -104,8 +104,8 @@ class CursorCLIProvider(LLMProvider):
         if key:
             env["CURSOR_API_KEY"] = key
         timeout = getattr(config, "CURSOR_CLI_TIMEOUT", 300) or 300
-        # Try "agent -p" first (per Cursor docs), then "cursor agent -p"
-        for argv in [["agent", "-p", prompt], ["cursor", "agent", "-p", prompt]]:
+        # --trust: non-interactive; we trust the cloned repo dir (required in Docker/headless)
+        for argv in [["agent", "--trust", "-p", prompt], ["cursor", "agent", "--trust", "-p", prompt]]:
             try:
                 proc = await asyncio.create_subprocess_exec(
                     argv[0],
