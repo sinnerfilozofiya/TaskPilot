@@ -18,9 +18,6 @@ RUN npm run build
 # ---------------------------
 FROM python:3.11-slim AS backend
 
-# Set to "1" to install Cursor CLI in the image (required for LLM_PROVIDER=cursor in Docker)
-ARG INSTALL_CURSOR_CLI=0
-
 WORKDIR /app
 
 # Git + CA certs required for clone and git log (Summarize with AI)
@@ -33,12 +30,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Optional: install Cursor CLI so "Summarize with AI" works with cursor in Docker
-RUN if [ "$INSTALL_CURSOR_CLI" = "1" ]; then \
-  apt-get update && apt-get install -y --no-install-recommends curl && \
+# Install Cursor CLI (for "Summarize with AI" with LLM_PROVIDER=cursor). Official: https://cursor.com/docs/cli/installation
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+  mkdir -p /root/.local/bin /root/.cursor/bin && \
+  export PATH="/root/.local/bin:/root/.cursor/bin:$PATH" && \
   (curl -fsSL "https://cursor.com/install" | bash) && \
-  apt-get remove -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*; \
-  fi
+  apt-get remove -y curl 2>/dev/null; apt-get autoremove -y; rm -rf /var/lib/apt/lists/*
 ENV PATH="/root/.local/bin:/root/.cursor/bin:${PATH}"
 
 # Backend code

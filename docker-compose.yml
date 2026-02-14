@@ -5,11 +5,7 @@
 
 services:
   app:
-    build:
-      context: .
-      args:
-        # Set to "1" when using LLM_PROVIDER=cursor so the image includes Cursor CLI
-        INSTALL_CURSOR_CLI: ${INSTALL_CURSOR_CLI:-0}
+    build: .
     ports:
       - "8000:8000"
     env_file:
