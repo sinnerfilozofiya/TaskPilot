@@ -54,7 +54,45 @@ No need to set `GITHUB_CALLBACK_URL` or `FRONTEND_URL` when `APP_URL` is set.
 
 ---
 
-## 3. Run the app
+## 3. Reverse proxy (Nginx)
 
-- **Docker:** `docker compose up -d`. Ensure your reverse proxy (if any) forwards to port 8000 and uses the same host as `APP_URL`.
+Use **`nginx.conf.example`** in the repo as a template:
+
+1. Copy it to your server, e.g. `/etc/nginx/sites-available/taskpilot`.
+2. Replace `YOUR_DOMAIN` with your host (e.g. `taskpilot.yourdomain.com`).
+3. Get TLS certs (e.g. `certbot --nginx -d taskpilot.yourdomain.com`) and set the `ssl_certificate` / `ssl_certificate_key` paths in the `server { listen 443 ... }` block.
+4. Enable the site and reload Nginx:
+   ```bash
+   sudo ln -s /etc/nginx/sites-available/taskpilot /etc/nginx/sites-enabled/
+   sudo nginx -t && sudo systemctl reload nginx
+   ```
+5. Ensure the app is listening on `127.0.0.1:8000` (e.g. `docker compose up -d` with port `8000:8000`).
+
+---
+
+## 4. Run the app
+
+- **Docker:** `docker compose up -d`. The proxy forwards to port 8000; use the same host in `APP_URL`.
 - **Local:** Leave `APP_URL` empty in `.env` for default localhost URLs.
+
+---
+
+## 5. Using Cursor in Docker
+
+The default image does **not** include the Cursor CLI. To use “Summarize with AI” with Cursor in Docker:
+
+1. **Set in `.env`:**
+   ```env
+   LLM_PROVIDER=cursor
+   CURSOR_API_KEY=your_key_from_cursor_dashboard
+   ```
+   Create the key at **Cursor → Settings → Integrations → User API Keys**.
+
+2. **Build the image with Cursor CLI installed:**
+   ```bash
+   INSTALL_CURSOR_CLI=1 docker compose build --no-cache
+   docker compose up -d
+   ```
+   Or add to your `.env`: `INSTALL_CURSOR_CLI=1`, then run `docker compose build` and `docker compose up -d`.
+
+3. **Optional:** Use Ollama or Hugging Face in Docker instead (no CLI): set `LLM_PROVIDER=ollama` or `LLM_PROVIDER=huggingface` and the matching env vars; no image rebuild needed.
