@@ -23,13 +23,19 @@ ARG INSTALL_CURSOR_CLI=0
 
 WORKDIR /app
 
-# Install deps (no venv in container)
+# Git + CA certs required for clone and git log (Summarize with AI)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python deps (no venv in container)
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Optional: install Cursor CLI so "Summarize with AI" works with cursor in Docker
 RUN if [ "$INSTALL_CURSOR_CLI" = "1" ]; then \
-  apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
+  apt-get update && apt-get install -y --no-install-recommends curl && \
   (curl -fsSL "https://cursor.com/install" | bash) && \
   apt-get remove -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*; \
   fi
@@ -48,4 +54,5 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 
 # Run from /app so `app` package and static are found
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers / --forwarded-allow-ips: trust X-Forwarded-* when behind nginx (HTTPS, login redirects)
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

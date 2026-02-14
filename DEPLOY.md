@@ -77,7 +77,20 @@ Use **`nginx.conf.example`** in the repo as a template:
 
 ---
 
-## 5. Using Cursor in Docker
+## 5. Docker image requirements
+
+The image **includes git and CA certificates** so that "Summarize with AI" can clone repos and run `git log`. Rebuild if you had an older image:
+
+```bash
+docker compose build --no-cache
+docker compose up -d
+```
+
+If you still see `[Errno 2] No such file or directory` when summarizing, ensure you rebuilt after this change (the previous image had no git).
+
+---
+
+## 6. Using Cursor in Docker
 
 The default image does **not** include the Cursor CLI. To use “Summarize with AI” with Cursor in Docker:
 
@@ -96,3 +109,16 @@ The default image does **not** include the Cursor CLI. To use “Summarize with 
    Or add to your `.env`: `INSTALL_CURSOR_CLI=1`, then run `docker compose build` and `docker compose up -d`.
 
 3. **Optional:** Use Ollama or Hugging Face in Docker instead (no CLI): set `LLM_PROVIDER=ollama` or `LLM_PROVIDER=huggingface` and the matching env vars; no image rebuild needed.
+
+---
+
+## 7. Login / session behind nginx
+
+The container runs uvicorn with `--proxy-headers` and `--forwarded-allow-ips '*'` so that when traffic comes through nginx (or another reverse proxy), the app trusts `X-Forwarded-Proto` and `X-Forwarded-For`. That keeps redirects and session cookies correct over HTTPS. Ensure your nginx (or proxy) passes:
+
+- `Host`
+- `X-Real-IP`
+- `X-Forwarded-For`
+- `X-Forwarded-Proto`
+
+(as in `nginx.conf.example`).
