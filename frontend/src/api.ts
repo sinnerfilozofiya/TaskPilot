@@ -1,10 +1,5 @@
 const API = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "") + "/api";
 
-const opts: RequestInit = {
-  credentials: "include",
-  headers: { "Content-Type": "application/json" },
-};
-
 export type User = {
   logged_in: boolean;
   login?: string;
@@ -113,6 +108,84 @@ export async function getSummary(
     `${API}/summarize/${owner}/${repo}?range=${range}`,
     { credentials: "include" }
   );
+  if (!r.ok) {
+    const e = new Error(await r.text()) as Error & { status?: number };
+    e.status = r.status;
+    try {
+      const body = JSON.parse(e.message);
+      if (typeof body.detail === "string") e.message = body.detail;
+    } catch {
+      // keep raw message
+    }
+    throw e;
+  }
+  return r.json();
+}
+
+export async function postSummarizeStart(
+  owner: string,
+  repo: string,
+  range: RangeKind
+): Promise<{ job_id: string }> {
+  const r = await fetch(`${API}/summarize/start`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ owner, repo, range }),
+  });
+  await checkOk(r);
+  return r.json();
+}
+
+export type SummarizeStatusResponse = {
+  status: string;
+  message?: string;
+  result?: SummaryResponse;
+  error?: string;
+  /** Live Cursor CLI output while status is "cursor" */
+  cursor_log?: string;
+};
+
+export async function getSummarizeStatus(jobId: string): Promise<SummarizeStatusResponse> {
+  const r = await fetch(`${API}/summarize/status/${jobId}`, { credentials: "include" });
+  await checkOk(r);
+  return r.json();
+}
+
+/** Load persisted summary for this repo + range (survives reload). Returns null if none saved. */
+export async function getSavedSummary(
+  owner: string,
+  repo: string,
+  range: RangeKind
+): Promise<SummaryResponse | null> {
+  const r = await fetch(
+    `${API}/summarize/saved?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}&range=${range}`,
+    { credentials: "include" }
+  );
+  if (r.status === 404) return null;
+  await checkOk(r);
+  return r.json();
+}
+
+export type CursorStatus = {
+  provider_is_cursor: boolean;
+};
+
+export async function getCursorStatus(): Promise<CursorStatus> {
+  const r = await fetch(`${API}/cursor/status`, { credentials: "include" });
+  await checkOk(r);
+  return r.json();
+}
+
+export type CursorVerifyResult = {
+  ok: boolean;
+  message?: string;
+  output_length?: number;
+  error?: string;
+};
+
+export async function getCursorVerify(): Promise<CursorVerifyResult> {
+  const r = await fetch(`${API}/cursor/verify`, { credentials: "include" });
   await checkOk(r);
   return r.json();
 }

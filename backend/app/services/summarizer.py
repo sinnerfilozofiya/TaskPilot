@@ -1,17 +1,22 @@
 """Build activity text and call LLM to produce structured task list."""
 import json
 import re
-from typing import Any, Dict, List
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from app.config import config
 from app.services.llm.base import LLMProvider
 from app.services.llm.ollama_provider import OllamaProvider
 from app.services.llm.huggingface_provider import HuggingFaceProvider
+from app.services.llm.cursor_cli_provider import CursorCLIProvider
 
 
 def _get_provider() -> LLMProvider:
     if config.LLM_PROVIDER.lower() == "huggingface":
         return HuggingFaceProvider()
+    if config.LLM_PROVIDER.lower() == "cursor":
+        return CursorCLIProvider()
     return OllamaProvider()
 
 
@@ -53,6 +58,66 @@ def _range_label(range_kind: str) -> str:
     if range_kind == "week":
         return "Last 7 days"
     return "Last 30 days"
+
+
+def _parse_cursor_summary_response(raw: str) -> Optional[Tuple[str, List[Dict[str, str]]]]:
+    """Parse Cursor CLI output as JSON object with 'summary' and 'tasks'. Returns (summary, tasks) or None."""
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+
+    def scrape_object(s: str) -> str:
+        s = s.strip()
+        code = re.search(r"```(?:json)?\s*([\s\S]*?)```", s)
+        if code:
+            s = code.group(1).strip()
+        start = s.find("{")
+        if start == -1:
+            return ""
+        depth = 0
+        for i in range(start, len(s)):
+            if s[i] == "{":
+                depth += 1
+            elif s[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    return s[start : i + 1]
+        return ""
+
+    def fix_json(s: str) -> str:
+        s = re.sub(r",\s*]", "]", s)
+        s = re.sub(r",\s*}", "}", s)
+        return s
+
+    block = scrape_object(raw)
+    if not block:
+        block = raw if raw.strip().startswith("{") else ""
+    if not block:
+        return None
+    for attempt in (block, fix_json(block)):
+        try:
+            data = json.loads(attempt)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        summary_val = data.get("summary")
+        tasks_val = data.get("tasks")
+        if not isinstance(summary_val, str) or not isinstance(tasks_val, list):
+            continue
+        out = []
+        for item in tasks_val:
+            if not isinstance(item, dict):
+                continue
+            title = item.get("title") or item.get("name") or ""
+            desc = item.get("description") or item.get("detail") or item.get("text") or ""
+            title = str(title).strip() if title else ""
+            desc = str(desc).strip() if desc else ""
+            if title or desc:
+                out.append({"title": title or "Task", "description": desc})
+        if out:
+            return (summary_val.strip(), out)
+    return None
 
 
 def _parse_tasks_from_response(raw: str) -> List[Dict[str, str]]:
@@ -160,12 +225,57 @@ def _normalize_tasks(tasks: List[Dict[str, str]]) -> List[Dict[str, str]]:
     return out
 
 
-async def summarize_activity(activity: dict, range_kind: str = "week") -> Dict[str, Any]:
+def _range_to_dates(range_kind: str) -> tuple[datetime, datetime]:
+    from datetime import timezone, timedelta
+    now = datetime.now(timezone.utc)
+    if range_kind == "day":
+        since = now - timedelta(days=1)
+    elif range_kind == "week":
+        since = now - timedelta(weeks=1)
+    else:
+        since = now - timedelta(days=30)
+    return since, now
+
+
+async def summarize_activity(
+    activity: dict,
+    range_kind: str = "week",
+    repo_path: Optional[Path] = None,
+    cursor_api_key: Optional[str] = None,
+    git_log_text: Optional[str] = None,
+    cursor_log_callback: Optional[Callable[[str], Awaitable[None]]] = None,
+) -> Dict[str, Any]:
     """Produce structured list of tasks (title + description) using configured LLM."""
-    text = _activity_to_text(activity)
     repo_name = activity.get("repo", "unknown")
     label = _range_label(range_kind)
     provider = _get_provider()
+
+    if config.LLM_PROVIDER.lower() == "cursor":
+        if not repo_path:
+            raise ValueError("When LLM_PROVIDER is cursor, repo_path is required")
+        since, until = _range_to_dates(range_kind)
+        raw = await provider.summarize_tasks_from_repo(
+            repo_path,
+            since,
+            until,
+            label,
+            cursor_api_key,
+            repo_name=repo_name,
+            git_log_text=git_log_text,
+            log_callback=cursor_log_callback,
+        )
+        parsed = _parse_cursor_summary_response(raw)
+        if parsed is not None:
+            summary, tasks = parsed
+            tasks = _normalize_tasks(tasks)
+            return {"summary": summary, "tasks": tasks}
+        # Fallback: Cursor returned array or malformed object
+        tasks = _parse_tasks_from_response(raw)
+        tasks = _normalize_tasks(tasks)
+        summary = tasks[0]["description"] if tasks else ""
+        return {"summary": summary, "tasks": tasks}
+
+    text = _activity_to_text(activity)
     raw = await provider.summarize_tasks(text, repo_name, label)
     tasks = _parse_tasks_from_response(raw)
     tasks = _normalize_tasks(tasks)

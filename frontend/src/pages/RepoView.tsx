@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { getMe, getActivity, getSummary, type Activity, type RangeKind, type SummaryResponse, type SummaryTask } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate, useParams, Link } from "react-router-dom";
+import { getMe, getActivity, postSummarizeStart, getSummarizeStatus, getCursorStatus, getSavedSummary, type Activity, type RangeKind, type SummaryResponse, type SummaryTask } from "../api";
 
 export type TaskStatus = {
   done: boolean;
@@ -16,6 +16,11 @@ export default function RepoView() {
   const [summarizing, setSummarizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [taskStatus, setTaskStatus] = useState<Record<number, TaskStatus>>({});
+  const [cursorNeeded, setCursorNeeded] = useState<boolean | null>(null);
+  const [summarizeStatus, setSummarizeStatus] = useState<string | null>(null);
+  const [summarizeMessage, setSummarizeMessage] = useState<string | null>(null);
+  const [cursorLog, setCursorLog] = useState<string>("");
+  const cursorLogEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
   const setDone = (index: number, value: boolean) => {
@@ -39,6 +44,12 @@ export default function RepoView() {
   }, [navigate]);
 
   useEffect(() => {
+    getCursorStatus()
+      .then((s) => setCursorNeeded(s.provider_is_cursor === true ? true : null))
+      .catch(() => setCursorNeeded(null));
+  }, []);
+
+  useEffect(() => {
     if (!owner || !repo) return;
     setLoading(true);
     setError(null);
@@ -51,22 +62,75 @@ export default function RepoView() {
       .finally(() => setLoading(false));
   }, [owner, repo, range]);
 
+  useEffect(() => {
+    if (!owner || !repo) return;
+    getSavedSummary(owner, repo, range)
+      .then((saved) => {
+        if (saved) {
+          setSummaryData(saved);
+          setActivity(saved.activity);
+        }
+      })
+      .catch(() => {});
+  }, [owner, repo, range]);
+
   const handleSummarize = () => {
     if (!owner || !repo) return;
     setSummarizing(true);
     setError(null);
     setTaskStatus({});
-    getSummary(owner, repo, range)
-      .then((d) => {
-        setSummaryData(d);
-        setActivity(d.activity);
+    setSummarizeStatus(null);
+    setSummarizeMessage(null);
+    setCursorLog("");
+    postSummarizeStart(owner, repo, range)
+      .then(({ job_id }) => {
+        const poll = () => {
+          getSummarizeStatus(job_id)
+            .then((res) => {
+              setSummarizeStatus(res.status);
+              setSummarizeMessage(res.message ?? null);
+              if (res.cursor_log !== undefined) setCursorLog(res.cursor_log);
+              if (res.status === "done" && res.result) {
+                setSummaryData(res.result);
+                setActivity(res.result.activity);
+                setSummarizing(false);
+                setSummarizeStatus(null);
+                setSummarizeMessage(null);
+                setCursorLog("");
+              } else if (res.status === "error") {
+                setError(res.error ?? "Summarization failed.");
+                setSummarizing(false);
+                setSummarizeStatus(null);
+                setSummarizeMessage(null);
+                setCursorLog("");
+              } else {
+                setTimeout(poll, 1500);
+              }
+            })
+            .catch((e: Error & { status?: number }) => {
+              if (e.status === 401) navigate("/", { replace: true });
+              else setError(e.message);
+              setSummarizing(false);
+              setSummarizeStatus(null);
+              setSummarizeMessage(null);
+              setCursorLog("");
+            });
+        };
+        poll();
       })
       .catch((e: Error & { status?: number }) => {
         if (e.status === 401) navigate("/", { replace: true });
         else setError(e.message);
-      })
-      .finally(() => setSummarizing(false));
+        setSummarizing(false);
+        setSummarizeStatus(null);
+        setSummarizeMessage(null);
+        setCursorLog("");
+      });
   };
+
+  useEffect(() => {
+    if (cursorLog) cursorLogEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [cursorLog]);
 
   if (!fullName) return null;
 
@@ -78,6 +142,33 @@ export default function RepoView() {
         </button>
         <h1>{fullName}</h1>
       </header>
+
+      {cursorNeeded === true && (
+        <div className="banner cursor-banner">
+          Summarize uses Cursor CLI on the server (browser login, no API key).{" "}
+          <Link to="/settings">See Settings</Link> for how to ensure Cursor is logged in on the server.
+        </div>
+      )}
+
+      {summarizing && (summarizeStatus || summarizeMessage) && (
+        <div className="progress-block">
+          <p className="progress-title">Status: {summarizeMessage ?? summarizeStatus ?? "Working…"}</p>
+          <ul className="progress-steps">
+            <li className={summarizeStatus === "cloning" ? "active" : summarizeStatus ? "done" : ""}>Cloning repository</li>
+            <li className={summarizeStatus === "git_log" ? "active" : ["cursor", "done"].includes(summarizeStatus ?? "") ? "done" : ""}>Fetching git history</li>
+            <li className={summarizeStatus === "cursor" ? "active" : summarizeStatus === "done" ? "done" : ""}>Analyzing with Cursor</li>
+          </ul>
+          {summarizeStatus === "cursor" && (
+            <div className="progress-cursor-log">
+              <p className="progress-log-title">Cursor CLI output (live)</p>
+              <div className="progress-log-scroll">
+                <pre className="progress-log-pre">{cursorLog || "Waiting for output…"}</pre>
+                <div ref={cursorLogEndRef} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <section className="range-section">
         <label>
@@ -102,7 +193,16 @@ export default function RepoView() {
         </button>
       </section>
 
-      {error && <div className="error">{error}</div>}
+      {error && (
+        <div className="error">
+          <div>{error}</div>
+          {error.includes("Cursor") || error.includes("Summarization failed") ? (
+            <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+              <Link to="/settings">Test Cursor connection in Settings</Link> to diagnose.
+            </p>
+          ) : null}
+        </div>
+      )}
 
       {summaryData && tasks.length === 0 && (
         <section className="tasks-section">

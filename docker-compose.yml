@@ -1,0 +1,31 @@
+# TaskPilot – single service (backend + frontend static)
+# Usage: copy .env.example to .env, set GITHUB_* and SECRET_KEY, then:
+#   docker compose up -d
+# Open http://localhost:8000
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Data dir (persisted volume)
+      REPOS_CACHE_DIR: /data/repos_cache
+      SUMMARY_CACHE_DIR: /data/summary_cache
+      SUMMARY_DB_PATH: /data/taskpilot_summaries.db
+      # Set your public URL once (callback & frontend URLs are derived automatically):
+      # APP_URL: https://your-domain.com
+    volumes:
+      - taskpilot_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  taskpilot_data:

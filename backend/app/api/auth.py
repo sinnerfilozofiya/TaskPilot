@@ -60,7 +60,16 @@ async def callback(request: Request, code: Optional[str] = None, state: Optional
     data = r.json()
     if "access_token" not in data:
         raise HTTPException(status_code=502, detail=data.get("error_description", "No token"))
-    request.session["github_token"] = data["access_token"]
+    token = data["access_token"]
+    request.session["github_token"] = token
+    # Fetch user id for persisted data (e.g. saved summaries)
+    async with httpx.AsyncClient() as client:
+        ru = await client.get(
+            GITHUB_USER_URL,
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"},
+        )
+    if ru.status_code == 200:
+        request.session["github_user_id"] = ru.json().get("id")
     return RedirectResponse(url=f"{config.FRONTEND_URL}/dashboard")
 
 
@@ -77,8 +86,10 @@ async def me(request: Request):
         )
     if r.status_code != 200:
         request.session.pop("github_token", None)
+        request.session.pop("github_user_id", None)
         return {"logged_in": False}
     user = r.json()
+    request.session["github_user_id"] = user.get("id")
     return {
         "logged_in": True,
         "login": user.get("login"),

@@ -4,7 +4,7 @@ import { getMe } from "../api";
 
 export default function Home() {
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<Awaited<ReturnType<typeof getMe>> | null>(null);
+  const [, setUser] = useState<Awaited<ReturnType<typeof getMe>> | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {

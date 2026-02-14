@@ -1,0 +1,38 @@
+# Git and env
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+
+# Python
+backend/venv
+backend/__pycache__
+backend/**/__pycache__
+backend/.pytest_cache
+backend/*.egg-info
+*.pyc
+*.pyo
+
+# Node
+frontend/node_modules
+frontend/dist
+
+# Data and caches (bind at runtime)
+.repos_cache
+.summary_cache
+*.db
+taskpilot_summaries.db
+
+# IDE and misc
+.cursor
+.cursorignore
+*.md
+!README.md
+terminals
+.DS_Store
+
+# Tests and dev
+backend/scripts
+test_*
+cursor_test_out

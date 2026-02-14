@@ -137,6 +137,10 @@ celerybeat.pid
 # Environments
 .env
 .envrc
+.repos_cache
+.summary_cache
+taskpilot_summaries.db
+cursor_test_out
 .venv
 env/
 venv/

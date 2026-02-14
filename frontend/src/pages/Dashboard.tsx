@@ -62,6 +62,9 @@ export default function Dashboard() {
           )}
           <span>{user.login ?? user.name}</span>
         </div>
+        <button type="button" className="btn" onClick={() => navigate("/settings")}>
+          Settings
+        </button>
         <button type="button" className="btn" onClick={handleLogout}>
           Log out
         </button>
